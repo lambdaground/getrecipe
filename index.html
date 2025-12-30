@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>뚝딱 레시피 - AI & 공유 요리책</title>
+    
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root { --primary: #f97316; --bg: #f3f4f6; }
+        body { font-family: 'Apple SD Gothic Neo', sans-serif; background: var(--bg); margin: 0; display: flex; justify-content: center; min-height: 100vh; }
+        
+        /* 모바일 컨테이너 */
+        .app-container { width: 100%; max-width: 480px; background: white; min-height: 100vh; display: flex; flex-direction: column; box-shadow: 0 0 20px rgba(0,0,0,0.1); position: relative; }
+        
+        /* 헤더 */
+        header { background: var(--primary); color: white; padding: 1.5rem 1rem; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 20; }
+        header h1 { font-size: 1.2rem; margin: 0; font-weight: bold; }
+        
+        /* 메인 */
+        main { flex: 1; padding: 1.5rem; overflow-y: auto; }
+        .card { background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        
+        /* 입력 요소 */
+        label { display: block; font-size: 0.8rem; font-weight: bold; color: #6b7280; margin-bottom: 0.3rem; }
+        input, textarea { width: 100%; padding: 0.8rem; border: 1px solid #d1d5db; border-radius: 8px; margin-bottom: 1rem; box-sizing: border-box; font-size: 0.9rem; }
+        textarea { resize: none; height: 100px; }
+        input:focus, textarea:focus { outline: 2px solid var(--primary); border-color: transparent; }
+        
+        /* 버튼 */
+        .btn { width: 100%; padding: 0.8rem; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; display: flex; justify-content: center; gap: 0.5rem; }
+        .btn-primary { background: #1f2937; color: white; }
+        .btn-primary:active { transform: scale(0.98); }
+        .btn-setting { background: none; color: white; font-size: 1.2rem; padding: 0; width: auto; }
+
+        /* 결과 카드 */
+        .result-card { display: none; border-radius: 12px; overflow: hidden; background: white; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-top: 1rem; }
+        .result-card.show { display: block; animation: slideUp 0.5s ease; }
+        .thumb-area { height: 150px; background: #ddd; position: relative; }
+        .thumb-area img { width: 100%; height: 100%; object-fit: cover; }
+        .thumb-text { position: absolute; bottom: 0; width: 100%; background: linear-gradient(transparent, black); color: white; padding: 1rem; box-sizing: border-box; font-weight: bold; }
+        
+        .badge-area { padding: 0.8rem; background: #fff7ed; display: flex; justify-content: space-between; border-bottom: 1px solid #ffedd5; }
+        .badge { padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+        .badge-new { background: #fee2e2; color: #dc2626; } /* API 사용 */
+        .badge-cache { background: #dbeafe; color: #2563eb; } /* DB 사용 */
+
+        .content { padding: 1rem; }
+        ul { list-style: none; padding: 0; }
+        li { padding: 0.5rem 0; border-bottom: 1px solid #f3f4f6; display: flex; justify-content: space-between; font-size: 0.9rem; color: #374151; }
+        .amount { color: var(--primary); font-weight: bold; }
+        .step { display: flex; gap: 0.8rem; margin-bottom: 1rem; font-size: 0.9rem; color: #374151; line-height: 1.5; }
+        .step-num { flex-shrink: 0; background: var(--primary); color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: bold; margin-top: 2px; }
+
+        /* 설정 패널 */
+        #settingsPanel { display: none; background: #374151; color: white; padding: 1rem; font-size: 0.85rem; }
+        #settingsPanel.show { display: block; }
+        
+        /* 광고 모달 */
+        .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 50; display: none; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; }
+        .modal.show { display: flex; }
+        .loader { width: 40px; height: 40px; border: 4px solid #555; border-top-color: var(--primary); border-radius: 50%; animation: spin 1s infinite; margin-bottom: 1rem; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+        .hidden { display: none; }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script type="importmap">
+      { "imports": { "@google/generative-ai": "https://esm.run/@google/generative-ai" } }
+    </script>
+</head>
+<body>
+
+    <div class="app-container">
+        <header>
+            <h1><i class="fa-solid fa-utensils"></i> 뚝딱 레시피</h1>
+            <button class="btn btn-setting" onclick="toggleSettings()"><i class="fa-solid fa-gear"></i></button>
+        </header>
+
+        <div id="settingsPanel">
+            <p style="color: #fb923c; margin-bottom: 10px; font-weight: bold;">앱 설정 (필수)</p>
+            <label style="color:white">Gemini API Key</label>
+            <input type="password" id="keyGemini" placeholder="AI Studio 키 입력">
+            
+            <label style="color:white">Supabase URL</label>
+            <input type="text" id="keySupaUrl" placeholder="https://xyz.supabase.co">
+            
+            <label style="color:white">Supabase Anon Key</label>
+            <input type="password" id="keySupaKey" placeholder="public-anon-key">
+            
+            <button class="btn" style="background: var(--primary); color: white;" onclick="saveKeys()">설정 저장하기</button>
+        </div>
+
+        <main>
+            <div class="card">
+                <label>유튜브 영상 주소 (URL)</label>
+                <input type="text" id="youtubeUrl" placeholder="https://youtu.be/..." oninput="checkUrl()">
+                
+                <div id="scriptSection" class="hidden">
+                    <label style="color: var(--primary);">⚠️ 분석된 데이터가 없어요! 내용을 넣어주세요.</label>
+                    <textarea id="videoScript" placeholder="영상 하단 '스크립트 표시' 내용을 복사해서 여기에 붙여넣으면, AI가 분석하고 DB에 저장합니다. (다음 사람부터는 무료!)"></textarea>
+                </div>
+
+                <button class="btn btn-primary" onclick="handleAnalyze()">
+                    <span>레시피 확인하기</span> <i class="fa-solid fa-magic-wand-sparkles"></i>
+                </button>
+            </div>
+
+            <div id="resultCard" class="result-card">
+                <div class="thumb-area">
+                    <img id="resThumb" src="">
+                    <div class="thumb-text" id="resTitle">요리 제목</div>
+                </div>
+                <div class="badge-area">
+                    <span id="badgeSource" class="badge badge-cache">⚡ Supabase 캐시</span>
+                    <button style="border:none; background:none; color:#666; font-size:0.8rem; cursor:pointer;" onclick="resetApp()">다시하기</button>
+                </div>
+                <div class="content">
+                    <h4 style="margin: 0 0 10px 0;"><i class="fa-solid fa-basket-shopping"></i> 재료</h4>
+                    <ul id="resIngredients"></ul>
+                    
+                    <h4 style="margin: 20px 0 10px 0;"><i class="fa-solid fa-list-ol"></i> 조리법</h4>
+                    <div id="resSteps"></div>
+
+                    <div style="background:#fef9c3; padding:10px; border-radius:8px; font-size:0.85rem; color:#854d0e; margin-top:15px;">
+                        <i class="fa-solid fa-lightbulb"></i> <span id="resTip"></span>
+                    </div>
+                </div>
+            </div>
+        </main>
+        
+        <div id="adModal" class="modal">
+            <div style="color:white; text-align:center; margin-bottom:20px;">
+                <div class="loader" style="margin:0 auto 15px auto;"></div>
+                <h3 style="margin:0;">잠시만 기다려주세요</h3>
+                <p style="font-size:0.8rem; opacity:0.8; margin-top:5px;">AI 셰프가 레시피를 요리 중입니다...</p>
+            </div>
+            <div style="background:white; width:100%; max-width:300px; border-radius:10px; overflow:hidden;">
+                <img src="https://images.unsplash.com/photo-1556910103-1c02745a30bf?w=500" style="width:100%; height:150px; object-fit:cover;">
+                <div style="padding:15px; display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:0.7rem; background:#eee; padding:2px 5px; border-radius:3px;">AD</span>
+                    <button id="closeAdBtn" disabled style="background:#ccc; border:none; padding:5px 15px; border-radius:5px; color:white; font-weight:bold;">5초</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script type="module">
+        import { GoogleGenerativeAI } from "https://esm.run/@google/generative-ai";
+
+        // 전역 변수
+        let supabase = null;
+        let KEYS = { gemini: "", supaUrl: "", supaKey: "" };
+
+        // 1. 초기화 및 키 로드
+        window.onload = () => {
+            const savedKeys = localStorage.getItem("RECIPE_APP_KEYS");
+            if(savedKeys) {
+                KEYS = JSON.parse(savedKeys);
+                document.getElementById('keyGemini').value = KEYS.gemini;
+                document.getElementById('keySupaUrl').value = KEYS.supaUrl;
+                document.getElementById('keySupaKey').value = KEYS.supaKey;
+                initSupabase();
+            } else {
+                document.getElementById('settingsPanel').classList.add('show');
+            }
+        };
+
+        function initSupabase() {
+            if(KEYS.supaUrl && KEYS.supaKey) {
+                supabase = window.supabase.createClient(KEYS.supaUrl, KEYS.supaKey);
+            }
+        }
+
+        // 전역 함수 노출
+        window.toggleSettings = () => document.getElementById('settingsPanel').classList.toggle('show');
+        
+        window.saveKeys = () => {
+            KEYS.gemini = document.getElementById('keyGemini').value.trim();
+            KEYS.supaUrl = document.getElementById('keySupaUrl').value.trim();
+            KEYS.supaKey = document.getElementById('keySupaKey').value.trim();
+            
+            if(!KEYS.gemini || !KEYS.supaUrl || !KEYS.supaKey) return alert("모든 키를 입력해주세요!");
+            
+            localStorage.setItem("RECIPE_APP_KEYS", JSON.stringify(KEYS));
+            initSupabase();
+            alert("저장되었습니다! 이제 앱을 사용할 수 있습니다.");
+            toggleSettings();
+        };
+
+        window.resetApp = () => {
+            document.getElementById('resultCard').classList.remove('show');
+            document.getElementById('youtubeUrl').value = "";
+            document.getElementById('videoScript').value = "";
+            document.getElementById('scriptSection').classList.add('hidden');
+        }
+
+        // 2. URL 입력 시 캐시 체크 (핵심 로직)
+        window.checkUrl = async () => {
+            const url = document.getElementById('youtubeUrl').value;
+            const videoId = extractVideoID(url);
+            if(!videoId || !supabase) return;
+
+            // Supabase에서 데이터 확인
+            const { data, error } = await supabase
+                .from('cached_recipes')
+                .select('json_data')
+                .eq('video_id', videoId)
+                .single();
+
+            if(data) {
+                // 데이터 있으면: 스크립트 입력창 숨김
+                document.getElementById('scriptSection').classList.add('hidden');
+                console.log("DB 캐시 발견!");
+            } else {
+                // 데이터 없으면: 스크립트 입력창 보여줌
+                document.getElementById('scriptSection').classList.remove('hidden');
+                console.log("DB에 없음. 스크립트 필요.");
+            }
+        }
+
+        // 3. 분석 시작
+        window.handleAnalyze = async () => {
+            const url = document.getElementById('youtubeUrl').value;
+            const script = document.getElementById('videoScript').value;
+            const videoId = extractVideoID(url);
+
+            if(!KEYS.gemini) return alert("설정에서 API 키를 먼저 입력해주세요.");
+            if(!videoId) return alert("올바른 유튜브 URL이 아닙니다.");
+
+            // A. 광고 모달 띄우기
+            showAdModal(async () => {
+                try {
+                    // B. Supabase 조회
+                    let recipeData = null;
+                    let isFromCache = false;
+
+                    if(supabase) {
+                        const { data } = await supabase.from('cached_recipes').select('json_data').eq('video_id', videoId).single();
+                        if(data) {
+                            recipeData = JSON.parse(data.json_data);
+                            isFromCache = true;
+                        }
+                    }
+
+                    // C. 캐시 없으면 Gemini 호출
+                    if(!recipeData) {
+                        if(!script) return alert("새로운 영상입니다! 분석을 위해 '스크립트(자막)' 내용을 붙여넣어주세요.");
+                        recipeData = await callGemini(script);
+                        
+                        // DB 저장 (다음 사람을 위해)
+                        if(supabase) {
+                            await supabase.from('cached_recipes').upsert({
+                                video_id: videoId,
+                                json_data: JSON.stringify(recipeData)
+                            });
+                        }
+                    }
+
+                    // D. 결과 렌더링
+                    renderResult(recipeData, isFromCache, videoId);
+
+                } catch (e) {
+                    alert("오류 발생: " + e.message);
+                }
+            });
+        };
+
+        // 광고 타이머 로직
+        function showAdModal(callback) {
+            const modal = document.getElementById('adModal');
+            const btn = document.getElementById('closeAdBtn');
+            let timeLeft = 5;
+            
+            modal.classList.add('show');
+            btn.innerText = timeLeft + "초";
+            btn.disabled = true;
+            btn.style.background = "#ccc";
+
+            const timer = setInterval(() => {
+                timeLeft--;
+                btn.innerText = timeLeft + "초";
+                if(timeLeft <= 0) {
+                    clearInterval(timer);
+                    btn.innerText = "결과 보기";
+                    btn.disabled = false;
+                    btn.style.background = "#f97316";
+                    btn.onclick = () => {
+                        modal.classList.remove('show');
+                        callback();
+                    };
+                }
+            }, 1000);
+        }
+
+        // Gemini AI 호출
+        async function callGemini(text) {
+            const genAI = new GoogleGenerativeAI(KEYS.gemini);
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            
+            const prompt = `
+            다음은 요리 영상 스크립트야. JSON으로 레시피를 정리해.
+            형식: {"title": "요리명", "ingredients": [{"name":"재료명", "amount":"양"}], "steps": [{"text":"조리과정"}], "tip": "꿀팁"}
+            스크립트: ${text}
+            `;
+            
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            const jsonText = response.text().replace(/```json/g, "").replace(/```/g, "").trim();
+            return JSON.parse(jsonText);
+        }
+
+        // 결과 그리기
+        function renderResult(data, isCached, videoId) {
+            document.getElementById('resultCard').classList.add('show');
+            document.getElementById('resTitle').innerText = data.title;
+            document.getElementById('resThumb').src = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+            document.getElementById('resTip').innerText = data.tip || "맛있게 드세요!";
+
+            const badge = document.getElementById('badgeSource');
+            if(isCached) {
+                badge.className = "badge badge-cache";
+                badge.innerHTML = "⚡ Supabase 캐시 (무료)";
+            } else {
+                badge.className = "badge badge-new";
+                badge.innerHTML = "✨ AI 분석 완료 (저장됨)";
+            }
+
+            const ingList = document.getElementById('resIngredients');
+            ingList.innerHTML = "";
+            data.ingredients.forEach(i => {
+                ingList.innerHTML += `<li><span>${i.name}</span> <span class="amount">${i.amount}</span></li>`;
+            });
+
+            const stepList = document.getElementById('resSteps');
+            stepList.innerHTML = "";
+            data.steps.forEach((s, idx) => {
+                stepList.innerHTML += `
+                <div class="step">
+                    <div class="step-num">${idx+1}</div>
+                    <div>${s.text}</div>
+                </div>`;
+            });
+        }
+
+        function extractVideoID(url) {
+            const regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
+            const match = url.match(regExp);
+            return (match && match[7].length == 11) ? match[7] : false;
+        }
+    </script>
+</body>
+</html>
