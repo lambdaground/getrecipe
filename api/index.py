@@ -1,81 +1,42 @@
 from http.server import BaseHTTPRequestHandler
 import json
-from urllib.parse import urlparse, parse_qs
 import sys
-import traceback
-
-# 안전하게 라이브러리 임포트
-try:
-    import youtube_transcript_api
-    from youtube_transcript_api import YouTubeTranscriptApi
-except ImportError:
-    youtube_transcript_api = None
-    YouTubeTranscriptApi = None
+import os
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # 1. CORS 설정 (필수)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET,OPTIONS')
         self.send_header('Content-type', 'application/json; charset=utf-8')
         
-        # 2. 라이브러리 설치 확인 (디버깅용)
-        if YouTubeTranscriptApi is None:
-            self.send_response(500)
-            self.end_headers()
-            self.wfile.write(json.dumps({
-                'error': 'Library Error',
-                'detail': '라이브러리가 설치되지 않았습니다. requirements.txt가 api 폴더 안에 있는지 확인하세요.'
-            }, ensure_ascii=False).encode('utf-8'))
-            return
-
+        result = {}
+        
         try:
-            # 3. URL에서 Video ID 추출
-            query = urlparse(self.path).query
-            params = parse_qs(query)
-            video_id = params.get('videoId', [None])[0]
-
-            if not video_id:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(json.dumps({'error': 'Video ID is required'}).encode('utf-8'))
-                return
-
-            print(f"Fetching transcript for: {video_id}")
-
-            # 4. 자막 가져오기 (한국어 -> 영어 -> 자동생성 순)
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en', 'en-US', 'ja'])
+            # 라이브러리 임포트 시도
+            import youtube_transcript_api
+            from youtube_transcript_api import YouTubeTranscriptApi
             
-            # 5. 텍스트 합치기
-            full_text = " ".join([t['text'] for t in transcript_list])
+            # 여기가 핵심! 파이썬이 읽은 파일의 진짜 위치를 알아냄
+            loaded_file_path = getattr(youtube_transcript_api, '__file__', '알 수 없음')
             
-            # 6. 성공 응답
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(json.dumps({'text': full_text}, ensure_ascii=False).encode('utf-8'))
-
+            result = {
+                "상태": "임포트 성공 (그러나 기능이 없는 가짜일 수 있음)",
+                "범인_파일_위치": loaded_file_path,  # 이 경로가 중요합니다!
+                "현재_폴더_파일들": os.listdir('.'),   # 현재 폴더에 무슨 파일이 있는지 확인
+                "YouTubeTranscriptApi_내용물": str(dir(YouTubeTranscriptApi)) # get_transcript가 있는지 확인
+            }
+            
+        except ImportError as e:
+            result = {
+                "상태": "임포트 실패",
+                "에러_내용": str(e),
+                "현재_폴더_위치": os.getcwd(),
+                "현재_폴더_파일들": os.listdir('.')
+            }
         except Exception as e:
-            # 에러 처리
-            error_msg = str(e)
-            print(f"ERROR: {error_msg}")
+            result = {
+                "상태": "알 수 없는 에러",
+                "에러_내용": str(e)
+            }
             
-            if "TranscriptsDisabled" in error_msg:
-                status_code = 404
-                client_msg = "이 영상은 자막을 제공하지 않습니다."
-            elif "NoTranscriptFound" in error_msg:
-                status_code = 404
-                client_msg = "지원하는 언어(한국어/영어)의 자막이 없습니다."
-            else:
-                status_code = 500
-                client_msg = f"서버 오류: {error_msg}"
-
-            self.send_response(status_code)
-            self.end_headers()
-            self.wfile.write(json.dumps({'error': client_msg, 'detail': error_msg}, ensure_ascii=False).encode('utf-8'))
-
-    def do_OPTIONS(self):
         self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
+        self.wfile.write(json.dumps(result, ensure_ascii=False, indent=2).encode('utf-8'))
