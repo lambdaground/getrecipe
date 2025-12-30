@@ -1,63 +1,65 @@
-
 from http.server import BaseHTTPRequestHandler
 from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api.formatters import JSONFormatter
 import json
 from urllib.parse import urlparse, parse_qs
+import traceback # 에러 추적용
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # 1. CORS 및 헤더 설정 (필수)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET,OPTIONS')
         self.send_header('Content-type', 'application/json; charset=utf-8')
         
-        # 2. 쿼리 파라미터에서 videoId 추출
-        query = urlparse(self.path).query
-        params = parse_qs(query)
-        video_id = params.get('videoId', [None])[0]
-
-        if not video_id:
-            self.send_response(400)
-            self.end_headers()
-            self.wfile.write(json.dumps({'error': 'Video ID required'}).encode('utf-8'))
-            return
-
         try:
-            # 3. 자막 가져오기 (한국어 -> 영어 순으로 시도)
-            # Python 라이브러리는 '자동 생성 자막'도 아주 잘 가져옵니다.
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en', 'en-US'])
+            # URL 파싱
+            query = urlparse(self.path).query
+            params = parse_qs(query)
+            video_id = params.get('videoId', [None])[0]
+
+            if not video_id:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': 'No videoId provided'}).encode('utf-8'))
+                return
+
+            print(f"Attempting to fetch transcript for: {video_id}") # 로그 남기기
+
+            # 자막 가져오기 (언어 순서 중요)
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en', 'en-US', 'ja'])
             
-            # 4. 텍스트만 합치기
             full_text = " ".join([t['text'] for t in transcript_list])
             
-            # 성공 응답
             self.send_response(200)
             self.end_headers()
             self.wfile.write(json.dumps({'text': full_text}, ensure_ascii=False).encode('utf-8'))
 
         except Exception as e:
-            # 에러 처리
+            # 상세 에러를 Vercel 로그(Function Logs)에 출력
+            error_trace = traceback.format_exc()
+            print(f"ERROR: {error_trace}")
+
             error_msg = str(e)
-            print(f"Error fetching transcript: {error_msg}")
             
             if "TranscriptsDisabled" in error_msg:
-                self.send_response(404)
-                self.end_headers()
-                self.wfile.write(json.dumps({'error': '자막이 비활성화된 영상입니다.'}, ensure_ascii=False).encode('utf-8'))
+                status_code = 404
+                client_msg = "자막이 비활성화된 영상입니다."
             elif "NoTranscriptFound" in error_msg:
-                self.send_response(404)
-                self.end_headers()
-                self.wfile.write(json.dumps({'error': '한국어 또는 영어 자막을 찾을 수 없습니다.'}, ensure_ascii=False).encode('utf-8'))
+                status_code = 404
+                client_msg = "지원되는 언어(한국어/영어) 자막이 없습니다."
+            elif "Cookies" in error_msg or "Sign in" in error_msg:
+                 status_code = 403
+                 client_msg = "유튜브에서 봇 접근을 차단했습니다. (쿠키 필요)"
             else:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(json.dumps({'error': f'서버 오류: {error_msg}'}, ensure_ascii=False).encode('utf-8'))
+                status_code = 500
+                client_msg = f"서버 내부 오류: {error_msg}"
 
-    # 브라우저 사전 요청(OPTIONS) 처리
+            self.send_response(status_code)
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': client_msg, 'detail': error_msg}, ensure_ascii=False).encode('utf-8'))
+
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
