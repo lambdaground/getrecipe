@@ -209,7 +209,7 @@
                 .from('cached_recipes')
                 .select('json_data')
                 .eq('video_id', videoId)
-                .single();
+                .maybesingle();
 
             if(data) {
                 // 데이터 있으면: 스크립트 입력창 숨김
@@ -239,7 +239,7 @@
                     let isFromCache = false;
 
                     if(supabase) {
-                        const { data } = await supabase.from('cached_recipes').select('json_data').eq('video_id', videoId).single();
+                        const { data } = await supabase.from('cached_recipes').select('json_data').eq('video_id', videoId).maybesingle();
                         if(data) {
                             recipeData = JSON.parse(data.json_data);
                             isFromCache = true;
