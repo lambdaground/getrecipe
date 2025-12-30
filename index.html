@@ -56,10 +56,15 @@
         #settingsPanel { display: none; background: #374151; color: white; padding: 1rem; font-size: 0.85rem; }
         #settingsPanel.show { display: block; }
         
-        /* 광고 모달 */
+        /* 광고 모달 & 진행바 */
         .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 50; display: none; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; }
         .modal.show { display: flex; }
+        
+        /* [수정] 진행바 스타일 */
+        .progress-container { width: 100%; background-color: #e5e7eb; border-radius: 999px; height: 8px; margin-top: 15px; overflow: hidden; }
+        .progress-bar { height: 100%; background-color: var(--primary); width: 0%; transition: width 1s linear; }
         .loader { width: 40px; height: 40px; border: 4px solid #555; border-top-color: var(--primary); border-radius: 50%; animation: spin 1s infinite; margin-bottom: 1rem; }
+        
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
@@ -132,11 +137,17 @@
         </main>
         
         <div id="adModal" class="modal">
-            <div style="color:white; text-align:center; margin-bottom:20px;">
+            <div style="color:white; text-align:center; margin-bottom:20px; width:100%; max-width:300px;">
                 <div class="loader" style="margin:0 auto 15px auto;"></div>
                 <h3 style="margin:0;">잠시만 기다려주세요</h3>
-                <p style="font-size:0.8rem; opacity:0.8; margin-top:5px;">AI 셰프가 레시피를 요리 중입니다...</p>
+                <p style="font-size:0.8rem; opacity:0.8; margin-top:5px;">AI 셰프가 레시피를 분석 중입니다...</p>
+                
+                <div class="progress-container">
+                    <div id="adProgressBar" class="progress-bar"></div>
+                </div>
+                <p id="progressText" style="font-size: 0.7rem; margin-top: 5px; color: #fb923c;">0%</p>
             </div>
+
             <div style="background:white; width:100%; max-width:300px; border-radius:10px; overflow:hidden;">
                 <img src="https://images.unsplash.com/photo-1556910103-1c02745a30bf?w=500" style="width:100%; height:150px; object-fit:cover;">
                 <div style="padding:15px; display:flex; justify-content:space-between; align-items:center;">
@@ -170,8 +181,9 @@
         };
 
         function initSupabase() {
-            if(KEYS.supaUrl && KEYS.supaKey) {
+            if(KEYS.supaUrl && KEYS.supaKey && window.supabase) {
                 supabase = window.supabase.createClient(KEYS.supaUrl, KEYS.supaKey);
+                console.log("Supabase 초기화 완료");
             }
         }
 
@@ -198,29 +210,39 @@
             document.getElementById('scriptSection').classList.add('hidden');
         }
 
-        // 2. URL 입력 시 캐시 체크 (핵심 로직)
-window.checkUrl = async () => {
-    const url = document.getElementById('youtubeUrl').value;
-    const videoId = extractVideoID(url);
-    if(!videoId || !supabase) return;
+        // 2. URL 입력 시 캐시 체크 (수정됨: maybeSingle)
+        window.checkUrl = async () => {
+            const url = document.getElementById('youtubeUrl').value;
+            const videoId = extractVideoID(url);
+            
+            if(!videoId) return;
+            if(!supabase) {
+                console.log("Supabase 미연결 상태");
+                return;
+            }
 
-    // Supabase에서 데이터 확인
-    const { data, error } = await supabase
-        .from('cached_recipes')
-        .select('json_data')
-        .eq('video_id', videoId)
-        .maybeSingle(); // <--- 여기 S가 대문자여야 합니다!
+            console.log("DB 조회 중... ID:", videoId);
 
-    if(data) {
-        // 데이터 있으면: 스크립트 입력창 숨김
-        document.getElementById('scriptSection').classList.add('hidden');
-        console.log("DB 캐시 발견!");
-    } else {
-        // 데이터 없으면: 스크립트 입력창 보여줌
-        document.getElementById('scriptSection').classList.remove('hidden');
-        console.log("DB에 없음. 스크립트 필요.");
-    }
-}
+            // [수정] maybeSingle() 사용 (S 대문자 주의!)
+            const { data, error } = await supabase
+                .from('cached_recipes')
+                .select('json_data')
+                .eq('video_id', videoId)
+                .maybeSingle();
+
+            if(error) {
+                console.error("DB 에러:", error);
+                return;
+            }
+
+            if(data) {
+                document.getElementById('scriptSection').classList.add('hidden');
+                console.log("DB 캐시 발견!");
+            } else {
+                document.getElementById('scriptSection').classList.remove('hidden');
+                console.log("DB에 없음. 스크립트 필요.");
+            }
+        }
 
         // 3. 분석 시작
         window.handleAnalyze = async () => {
@@ -231,7 +253,7 @@ window.checkUrl = async () => {
             if(!KEYS.gemini) return alert("설정에서 API 키를 먼저 입력해주세요.");
             if(!videoId) return alert("올바른 유튜브 URL이 아닙니다.");
 
-            // A. 광고 모달 띄우기
+            // A. 광고 모달 띄우기 (콜백 함수 전달)
             showAdModal(async () => {
                 try {
                     // B. Supabase 조회
@@ -251,7 +273,7 @@ window.checkUrl = async () => {
                         if(!script) return alert("새로운 영상입니다! 분석을 위해 '스크립트(자막)' 내용을 붙여넣어주세요.");
                         recipeData = await callGemini(script);
                         
-                        // DB 저장 (다음 사람을 위해)
+                        // DB 저장
                         if(supabase) {
                             await supabase.from('cached_recipes').upsert({
                                 video_id: videoId,
@@ -269,28 +291,51 @@ window.checkUrl = async () => {
             });
         };
 
-        // 광고 타이머 로직
+        // [수정됨] 광고 타이머 & 진행바 로직
         function showAdModal(callback) {
             const modal = document.getElementById('adModal');
             const btn = document.getElementById('closeAdBtn');
+            const progressBar = document.getElementById('adProgressBar');
+            const progressText = document.getElementById('progressText');
+            
             let timeLeft = 5;
+            const totalTime = 5;
             
             modal.classList.add('show');
             btn.innerText = timeLeft + "초";
             btn.disabled = true;
             btn.style.background = "#ccc";
+            
+            // 진행바 초기화
+            progressBar.style.width = "0%";
+            progressText.innerText = "분석 시작... 0%";
 
             const timer = setInterval(() => {
                 timeLeft--;
+                
+                // 버튼 텍스트
                 btn.innerText = timeLeft + "초";
+                
+                // 진행바 업데이트
+                const percent = Math.floor(((totalTime - timeLeft) / totalTime) * 100);
+                progressBar.style.width = percent + "%";
+                progressText.innerText = `분석 진행률: ${percent}%`;
+
                 if(timeLeft <= 0) {
                     clearInterval(timer);
+                    
+                    // 완료 상태
+                    progressBar.style.width = "100%";
+                    progressText.innerText = "분석 완료!";
+                    
                     btn.innerText = "결과 보기";
                     btn.disabled = false;
                     btn.style.background = "#f97316";
+                    
+                    // 클릭 시 콜백 실행
                     btn.onclick = () => {
                         modal.classList.remove('show');
-                        callback();
+                        callback(); // 실제 AI 로직 실행
                     };
                 }
             }, 1000);
