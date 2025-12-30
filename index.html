@@ -199,28 +199,28 @@
         }
 
         // 2. URL 입력 시 캐시 체크 (핵심 로직)
-        window.checkUrl = async () => {
-            const url = document.getElementById('youtubeUrl').value;
-            const videoId = extractVideoID(url);
-            if(!videoId || !supabase) return;
+window.checkUrl = async () => {
+    const url = document.getElementById('youtubeUrl').value;
+    const videoId = extractVideoID(url);
+    if(!videoId || !supabase) return;
 
-            // Supabase에서 데이터 확인
-            const { data, error } = await supabase
-                .from('cached_recipes')
-                .select('json_data')
-                .eq('video_id', videoId)
-                .maybesingle();
+    // Supabase에서 데이터 확인
+    const { data, error } = await supabase
+        .from('cached_recipes')
+        .select('json_data')
+        .eq('video_id', videoId)
+        .maybeSingle(); // <--- 여기 S가 대문자여야 합니다!
 
-            if(data) {
-                // 데이터 있으면: 스크립트 입력창 숨김
-                document.getElementById('scriptSection').classList.add('hidden');
-                console.log("DB 캐시 발견!");
-            } else {
-                // 데이터 없으면: 스크립트 입력창 보여줌
-                document.getElementById('scriptSection').classList.remove('hidden');
-                console.log("DB에 없음. 스크립트 필요.");
-            }
-        }
+    if(data) {
+        // 데이터 있으면: 스크립트 입력창 숨김
+        document.getElementById('scriptSection').classList.add('hidden');
+        console.log("DB 캐시 발견!");
+    } else {
+        // 데이터 없으면: 스크립트 입력창 보여줌
+        document.getElementById('scriptSection').classList.remove('hidden');
+        console.log("DB에 없음. 스크립트 필요.");
+    }
+}
 
         // 3. 분석 시작
         window.handleAnalyze = async () => {
