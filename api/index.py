@@ -1,8 +1,12 @@
 from http.server import BaseHTTPRequestHandler
-from youtube_transcript_api import YouTubeTranscriptApi
 import json
-from urllib.parse import urlparse, parse_qs
-import traceback # 에러 추적용
+import traceback
+
+# 라이브러리 임포트를 try-except로 감싸서, 없으면 에러 메시지를 보여주게 함
+try:
+    from youtube_transcript_api import YouTubeTranscriptApi
+except ImportError:
+    YouTubeTranscriptApi = None
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -10,17 +14,12 @@ class handler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Methods', 'GET,OPTIONS')
         self.send_header('Content-type', 'application/json; charset=utf-8')
         
-        try:
-            # URL 파싱
-            query = urlparse(self.path).query
-            params = parse_qs(query)
-            video_id = params.get('videoId', [None])[0]
-
-            if not video_id:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(json.dumps({'error': 'No videoId provided'}).encode('utf-8'))
-                return
+        # 라이브러리 설치 실패 시 500 에러 대신 친절한 메시지 출력
+        if YouTubeTranscriptApi is None:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': 'CRITICAL: youtube_transcript_api 라이브러리가 설치되지 않았습니다. requirements.txt를 확인하세요.'}, ensure_ascii=False).encode('utf-8'))
+            return
 
             print(f"Attempting to fetch transcript for: {video_id}") # 로그 남기기
 
