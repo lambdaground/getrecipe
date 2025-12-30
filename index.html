@@ -239,7 +239,7 @@ window.checkUrl = async () => {
                     let isFromCache = false;
 
                     if(supabase) {
-                        const { data } = await supabase.from('cached_recipes').select('json_data').eq('video_id', videoId).maybesingle();
+                        const { data } = await supabase.from('cached_recipes').select('json_data').eq('video_id', videoId).maybeSingle();
                         if(data) {
                             recipeData = JSON.parse(data.json_data);
                             isFromCache = true;
